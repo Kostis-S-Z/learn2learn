@@ -25,13 +25,11 @@ params = dict(
 
 cuda = False
 
-wandb = False
-
 
 class MamlMiniImageNet(Experiment):
 
     def __init__(self):
-        super(MamlMiniImageNet, self).__init__(wandb, **params)
+        super(MamlMiniImageNet, self).__init__(params)
 
         random.seed(self.params['seed'])
         np.random.seed(self.params['seed'])
@@ -53,8 +51,6 @@ class MamlMiniImageNet(Experiment):
         maml = l2l.algorithms.MAML(model, lr=self.params['fast_lr'], first_order=False)
         opt = optim.Adam(maml.parameters(), self.params['meta_lr'])
         loss = nn.CrossEntropyLoss(reduction='mean')
-
-        self.log_model(maml, device, input_shape=(3, 84, 84))  # Input shape is specific to dataset
 
         for iteration in range(self.params['num_iterations']):
             opt.zero_grad()
