@@ -2,7 +2,6 @@
 
 import random
 
-import os
 import numpy as np
 import torch
 from torch import nn
@@ -10,43 +9,127 @@ from torch import optim
 
 import learn2learn as l2l
 from learn2learn.data.transforms import NWays, KShots, LoadData, RemapLabels, ConsecutiveLabels
-import json
-import datetime
 
-now = datetime.datetime.now()
+from examples.experiment import Experiment
 
-try:
-    import wandb as _wandb
-    _wandb.init(project="l2l")
-except ImportError:
-    _has_wandb = False
-else:
-    _has_wandb = True
-
-config = dict(
+params = dict(
     ways=5,
     shots=5,
     meta_lr=0.003,
     fast_lr=0.5,
     meta_batch_size=32,
     adaptation_steps=1,
-    num_iterations=30000,
+    num_iterations=2,
     seed=42,
 )
 
-logger = {
-    'date': now.strftime("%d_%m_%Hh%M"),
-    'model_ID': str(config['seed']) + '_' + str(np.random.randint(1, 9999)),
-    'parameters': config,
-    'train': {'loss_history': [], 'acc_history': []},
-    'valid': {'loss_history': [], 'acc_history': []},
-    'test': {'loss_history': [], 'acc_history': []}
-}
+cuda = False
 
-model_path = logger['date'] + '_' + logger['model_ID']
-os.mkdir(model_path)
-with open(model_path + '/logger.json', 'w') as fp:
-    json.dump(logger, fp)
+wandb = False
+
+
+class MamlMiniImageNet(Experiment):
+
+    def __init__(self):
+        super(MamlMiniImageNet, self).__init__(wandb, **params)
+
+        random.seed(self.params['seed'])
+        np.random.seed(self.params['seed'])
+        torch.manual_seed(self.params['seed'])
+        device = torch.device('cpu')
+        if cuda and torch.cuda.device_count():
+            torch.cuda.manual_seed(self.params['seed'])
+            device = torch.device('cuda')
+
+        self.run(device)
+
+    def run(self, device):
+
+        train_tasks, valid_tasks, test_tasks = get_mini_imagenet(self.params['ways'], self.params['shots'])
+
+        # Create model
+        model = l2l.vision.models.MiniImagenetCNN(self.params['ways'])
+        model.to(device)
+        maml = l2l.algorithms.MAML(model, lr=self.params['fast_lr'], first_order=False)
+        opt = optim.Adam(maml.parameters(), self.params['meta_lr'])
+        loss = nn.CrossEntropyLoss(reduction='mean')
+
+        self.log_model(maml, device, input_shape=(3, 84, 84))  # Input shape is specific to dataset
+
+        for iteration in range(self.params['num_iterations']):
+            opt.zero_grad()
+            meta_train_error = 0.0
+            meta_train_accuracy = 0.0
+            meta_valid_error = 0.0
+            meta_valid_accuracy = 0.0
+            for task in range(self.params['meta_batch_size']):
+                # Compute meta-training loss
+                learner = maml.clone()
+                batch = train_tasks.sample()
+                evaluation_error, evaluation_accuracy = fast_adapt(batch,
+                                                                   learner,
+                                                                   loss,
+                                                                   self.params['adaptation_steps'],
+                                                                   self.params['shots'],
+                                                                   self.params['ways'],
+                                                                   device)
+                evaluation_error.backward()
+                meta_train_error += evaluation_error.item()
+                meta_train_accuracy += evaluation_accuracy.item()
+
+                # Compute meta-validation loss
+                learner = maml.clone()
+                batch = valid_tasks.sample()
+                evaluation_error, evaluation_accuracy = fast_adapt(batch,
+                                                                   learner,
+                                                                   loss,
+                                                                   self.params['adaptation_steps'],
+                                                                   self.params['shots'],
+                                                                   self.params['ways'],
+                                                                   device)
+                meta_valid_error += evaluation_error.item()
+                meta_valid_accuracy += evaluation_accuracy.item()
+
+            # Print some metrics
+            meta_train_accuracy = meta_train_accuracy / self.params['meta_batch_size']
+            meta_valid_accuracy = meta_valid_accuracy / self.params['meta_batch_size']
+
+            self.log_metrics({
+                'train_acc': meta_train_accuracy,
+                'valid_acc': meta_valid_accuracy})
+
+            print('\n')
+            print('Iteration', iteration)
+            print('Meta Train Accuracy', self.logger['train']['acc_t'])
+            print('Meta Valid Accuracy', self.logger['valid']['acc_t'])
+
+            # Average the accumulated gradients and optimize
+            for p in maml.parameters():
+                p.grad.data.mul_(1.0 / self.params['meta_batch_size'])
+            opt.step()
+
+        meta_test_error = 0.0
+        meta_test_accuracy = 0.0
+        for task in range(self.params['meta_batch_size']):
+            # Compute meta-testing loss
+            learner = maml.clone()
+            batch = test_tasks.sample()
+            evaluation_error, evaluation_accuracy = fast_adapt(batch,
+                                                               learner,
+                                                               loss,
+                                                               self.params['adaptation_steps'],
+                                                               self.params['shots'],
+                                                               self.params['ways'],
+                                                               device)
+            meta_test_error += evaluation_error.item()
+            meta_test_accuracy += evaluation_accuracy.item()
+
+        meta_test_accuracy = meta_test_accuracy / self.params['meta_batch_size']
+        print('Meta Test Accuracy', meta_test_accuracy)
+
+        self.log_metrics({'test_acc': meta_test_accuracy})
+        self.save_logger_to_file()
+        self.save_model(model)
 
 
 def get_mini_imagenet(ways, shots):
@@ -125,125 +208,5 @@ def fast_adapt(batch, learner, loss, adaptation_steps, shots, ways, device):
     return valid_error, valid_accuracy
 
 
-def main(
-        ways=config['ways'],
-        shots=config['shots'],
-        meta_lr=config['meta_lr'],
-        fast_lr=config['fast_lr'],
-        meta_batch_size=config['meta_batch_size'],
-        adaptation_steps=config['adaptation_steps'],
-        num_iterations=config['num_iterations'],
-        cuda=True,
-        seed=config['seed'],
-):
-
-
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    device = torch.device('cpu')
-    if cuda and torch.cuda.device_count():
-        torch.cuda.manual_seed(seed)
-        device = torch.device('cuda')
-
-    train_tasks, valid_tasks, test_tasks = get_mini_imagenet(ways, shots)
-
-    # Create model
-    model = l2l.vision.models.MiniImagenetCNN(ways)
-    model.to(device)
-    maml = l2l.algorithms.MAML(model, lr=fast_lr, first_order=False)
-    opt = optim.Adam(maml.parameters(), meta_lr)
-    loss = nn.CrossEntropyLoss(reduction='mean')
-
-    if _has_wandb:
-        _wandb.watch(maml)
-
-    for iteration in range(num_iterations):
-        opt.zero_grad()
-        meta_train_error = 0.0
-        meta_train_accuracy = 0.0
-        meta_valid_error = 0.0
-        meta_valid_accuracy = 0.0
-        for task in range(meta_batch_size):
-            # Compute meta-training loss
-            learner = maml.clone()
-            batch = train_tasks.sample()
-            evaluation_error, evaluation_accuracy = fast_adapt(batch,
-                                                               learner,
-                                                               loss,
-                                                               adaptation_steps,
-                                                               shots,
-                                                               ways,
-                                                               device)
-            evaluation_error.backward()
-            meta_train_error += evaluation_error.item()
-            meta_train_accuracy += evaluation_accuracy.item()
-
-            # Compute meta-validation loss
-            learner = maml.clone()
-            batch = valid_tasks.sample()
-            evaluation_error, evaluation_accuracy = fast_adapt(batch,
-                                                               learner,
-                                                               loss,
-                                                               adaptation_steps,
-                                                               shots,
-                                                               ways,
-                                                               device)
-            meta_valid_error += evaluation_error.item()
-            meta_valid_accuracy += evaluation_accuracy.item()
-
-        # Print some metrics
-        meta_train_accuracy = meta_train_accuracy / meta_batch_size
-        meta_valid_accuracy = meta_valid_accuracy / meta_batch_size
-
-        logger['train']['acc_t'] = meta_train_accuracy
-        logger['valid']['acc_t'] = meta_valid_accuracy
-
-        logger['train']['acc_history'].append(meta_train_accuracy)
-        logger['valid']['acc_history'].append(meta_valid_accuracy)
-
-        if _has_wandb:
-            _wandb.log({'train_acc': meta_train_accuracy, 'valid_acc': meta_valid_accuracy})
-
-        print('\n')
-        print('Iteration', iteration)
-        print('Meta Train Accuracy', logger['train']['acc_t'])
-        print('Meta Valid Accuracy', logger['valid']['acc_t'])
-
-        # Average the accumulated gradients and optimize
-        for p in maml.parameters():
-            p.grad.data.mul_(1.0 / meta_batch_size)
-        opt.step()
-
-    meta_test_error = 0.0
-    meta_test_accuracy = 0.0
-    for task in range(meta_batch_size):
-        # Compute meta-testing loss
-        learner = maml.clone()
-        batch = test_tasks.sample()
-        evaluation_error, evaluation_accuracy = fast_adapt(batch,
-                                                           learner,
-                                                           loss,
-                                                           adaptation_steps,
-                                                           shots,
-                                                           ways,
-                                                           device)
-        meta_test_error += evaluation_error.item()
-        meta_test_accuracy += evaluation_accuracy.item()
-    meta_test_error = meta_test_error / meta_batch_size
-    meta_test_accuracy = meta_test_accuracy / meta_batch_size
-
-    print('Meta Test Accuracy', meta_test_accuracy)
-
-    logger['test']['accuracy'] = meta_test_accuracy
-
-    with open(model_path + '/logger.json', 'w') as fp:
-        json.dump(logger, fp)
-
-    torch.save(model.state_dict(), model_path + '/model.pt')
-    if _has_wandb:
-        torch.save(model.state_dict(), os.path.join(_wandb.run.dir, 'model.pt'))
-
-
 if __name__ == '__main__':
-    main()
+    MamlMiniImageNet()
