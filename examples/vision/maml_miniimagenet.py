@@ -156,7 +156,7 @@ def main(
     loss = nn.CrossEntropyLoss(reduction='mean')
 
     if _has_wandb:
-        _wandb.watch(model)
+        _wandb.watch(maml)
 
     for iteration in range(num_iterations):
         opt.zero_grad()
@@ -193,9 +193,7 @@ def main(
             meta_valid_accuracy += evaluation_accuracy.item()
 
         # Print some metrics
-        meta_train_error = meta_train_error / meta_batch_size
         meta_train_accuracy = meta_train_accuracy / meta_batch_size
-        meta_valid_error = meta_valid_error / meta_batch_size
         meta_valid_accuracy = meta_valid_accuracy / meta_batch_size
 
         logger['train']['acc_t'] = meta_train_accuracy
@@ -235,7 +233,6 @@ def main(
     meta_test_error = meta_test_error / meta_batch_size
     meta_test_accuracy = meta_test_accuracy / meta_batch_size
 
-    print('Meta Test Error', meta_test_error)
     print('Meta Test Accuracy', meta_test_accuracy)
 
     logger['test']['accuracy'] = meta_test_accuracy
@@ -243,9 +240,9 @@ def main(
     with open(model_path + '/logger.json', 'w') as fp:
         json.dump(logger, fp)
 
-    model.save(model_path + "/model.h5")
+    torch.save(model.state_dict(), model_path + '/model.pt')
     if _has_wandb:
-        model.save(os.path.join(_wandb.run.dir, "model.h5"))
+        torch.save(model.state_dict(), os.path.join(_wandb.run.dir, 'model.pt'))
 
 
 if __name__ == '__main__':
