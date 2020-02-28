@@ -3,6 +3,7 @@
 import random
 
 import numpy as np
+from tqdm import trange
 import torch
 from torch import nn
 from torch import optim
