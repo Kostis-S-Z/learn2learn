@@ -28,13 +28,13 @@ class Experiment:
             config=self.params,
             date=datetime.datetime.now().strftime("%d_%m_%Hh%M"),
             model_id=str(seed) + '_' + str(np.random.randint(1, 9999)),  # Generate a unique ID based on seed + randint
-            metrics=dict(),  # Metrics are added when inheriting the class
         )
+        self.metrics = dict()
 
         # Create a unique directory for this experiment and save the model's meta-data
         self.model_path = algo + '_' + dataset + '_' + self.logger['date'] + '_' + self.logger['model_id']
         os.mkdir(self.model_path)
-        self.save_logger_to_file()
+        self.save_logs_to_file()
 
         # Optionally, use Weights and Biases to monitor performance
         if wandb and _has_wandb:
@@ -54,14 +54,17 @@ class Experiment:
 
     def log_metrics(self, metrics):
         for key, value in metrics.items():
-            if key not in self.logger['metrics']:
-                self.logger['metrics'][key] = []
-            self.logger['metrics'][key].append(value)
+            if key not in self.metrics:
+                self.metrics[key] = []
+            self.metrics[key].append(value)
 
         if self._use_wandb:
             _wandb.log(metrics)
 
-    def save_logger_to_file(self):
+    def save_logs_to_file(self):
+        with open(self.model_path + '/metrics.json', 'w') as fp:
+            json.dump(self.metrics, fp)
+
         with open(self.model_path + '/logger.json', 'w') as fp:
             json.dump(self.logger, fp, sort_keys=True, indent=4)
 

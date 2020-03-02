@@ -132,8 +132,9 @@ class MamlVision(Experiment):
         meta_test_accuracy = meta_test_accuracy / self.params['meta_batch_size']
         print('Meta Test Accuracy', meta_test_accuracy)
 
-        self.log_metrics({'test_acc': meta_test_accuracy, 'elapsed_time': t.format_dict['elapsed']})
-        self.save_logger_to_file()
+        self.logger['elapsed_time'] = str(round(t.format_dict['elapsed'], 2)) + ' sec'
+        self.logger['test_acc'] = meta_test_accuracy
+        self.save_logs_to_file()
         self.save_model(model)
 
 
