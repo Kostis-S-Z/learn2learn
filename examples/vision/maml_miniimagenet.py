@@ -3,6 +3,7 @@
 import random
 
 import numpy as np
+from tqdm import trange
 import torch
 from torch import nn
 from torch import optim
@@ -29,7 +30,7 @@ cuda = False
 class MamlMiniImageNet(Experiment):
 
     def __init__(self):
-        super(MamlMiniImageNet, self).__init__(params)
+        super(MamlMiniImageNet, self).__init__("maml", "min", params)
 
         random.seed(self.params['seed'])
         np.random.seed(self.params['seed'])
@@ -51,8 +52,9 @@ class MamlMiniImageNet(Experiment):
         maml = l2l.algorithms.MAML(model, lr=self.params['fast_lr'], first_order=False)
         opt = optim.Adam(maml.parameters(), self.params['meta_lr'])
         loss = nn.CrossEntropyLoss(reduction='mean')
-
-        for iteration in range(self.params['num_iterations']):
+      
+        t = trange(self.params['num_iterations'])
+        for iteration in t:
             opt.zero_grad()
             meta_train_error = 0.0
             meta_train_accuracy = 0.0
@@ -90,14 +92,9 @@ class MamlMiniImageNet(Experiment):
             meta_train_accuracy = meta_train_accuracy / self.params['meta_batch_size']
             meta_valid_accuracy = meta_valid_accuracy / self.params['meta_batch_size']
 
-            self.log_metrics({
-                'train_acc': meta_train_accuracy,
-                'valid_acc': meta_valid_accuracy})
-
-            print('\n')
-            print('Iteration', iteration)
-            print('Meta Train Accuracy', self.logger['train']['acc_t'])
-            print('Meta Valid Accuracy', self.logger['valid']['acc_t'])
+            metrics = {'train_acc': meta_train_accuracy, 'valid_acc': meta_valid_accuracy}
+            t.set_postfix(metrics)
+            self.log_metrics(metrics)
 
             # Average the accumulated gradients and optimize
             for p in maml.parameters():
@@ -124,7 +121,7 @@ class MamlMiniImageNet(Experiment):
         print('Meta Test Accuracy', meta_test_accuracy)
 
         self.log_metrics({'test_acc': meta_test_accuracy})
-        self.save_logger_to_file()
+        self.save_logs_to_file()
         self.save_model(model)
 
 
