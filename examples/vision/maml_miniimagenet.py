@@ -125,7 +125,7 @@ class MamlMiniImageNet(Experiment):
         print('Meta Test Accuracy', meta_test_accuracy)
 
         self.log_metrics({'test_acc': meta_test_accuracy})
-        self.save_logger_to_file()
+        self.save_logs_to_file()
         self.save_model(model)
 
 

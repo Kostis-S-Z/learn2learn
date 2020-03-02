@@ -18,10 +18,10 @@ params = dict(
     seed=42,
 )
 
-dataset = "omni"  # omni or min (omniglot / Mini ImageNet)
+dataset = "min"  # omni or min (omniglot / Mini ImageNet)
 omni_cnn = True  # For omniglot, there is a FC and a CNN model available to choose from
 
-cuda = False
+cuda = True
 
 wandb = False
 
@@ -66,52 +66,54 @@ class MamlVision(Experiment):
         self.log_model(maml, device, input_shape=input_shape)  # Input shape is specific to dataset
 
         t = trange(self.params['num_iterations'])
-        for iteration in t:
-            opt.zero_grad()
-            meta_train_error = 0.0
-            meta_train_accuracy = 0.0
-            meta_valid_error = 0.0
-            meta_valid_accuracy = 0.0
-            for task in range(self.params['meta_batch_size']):
-                # Compute meta-training loss
-                learner = maml.clone()
-                batch = train_tasks.sample()
-                evaluation_error, evaluation_accuracy = fast_adapt(batch,
-                                                                   learner,
-                                                                   loss,
-                                                                   self.params['adaptation_steps'],
-                                                                   self.params['shots'],
-                                                                   self.params['ways'],
-                                                                   device)
-                evaluation_error.backward()
-                meta_train_error += evaluation_error.item()
-                meta_train_accuracy += evaluation_accuracy.item()
+        try:
+            for iteration in t:
+                opt.zero_grad()
+                meta_train_error = 0.0
+                meta_train_accuracy = 0.0
+                meta_valid_error = 0.0
+                meta_valid_accuracy = 0.0
+                for task in range(self.params['meta_batch_size']):
+                    # Compute meta-training loss
+                    learner = maml.clone()
+                    batch = train_tasks.sample()
+                    evaluation_error, evaluation_accuracy = fast_adapt(batch, learner, loss,
+                                                                       self.params['adaptation_steps'],
+                                                                       self.params['shots'], self.params['ways'],
+                                                                       device)
+                    evaluation_error.backward()
+                    meta_train_error += evaluation_error.item()
+                    meta_train_accuracy += evaluation_accuracy.item()
 
-                # Compute meta-validation loss
-                learner = maml.clone()
-                batch = valid_tasks.sample()
-                evaluation_error, evaluation_accuracy = fast_adapt(batch,
-                                                                   learner,
-                                                                   loss,
-                                                                   self.params['adaptation_steps'],
-                                                                   self.params['shots'],
-                                                                   self.params['ways'],
-                                                                   device)
-                meta_valid_error += evaluation_error.item()
-                meta_valid_accuracy += evaluation_accuracy.item()
+                    # Compute meta-validation loss
+                    learner = maml.clone()
+                    batch = valid_tasks.sample()
+                    evaluation_error, evaluation_accuracy = fast_adapt(batch, learner, loss,
+                                                                       self.params['adaptation_steps'],
+                                                                       self.params['shots'], self.params['ways'],
+                                                                       device)
+                    meta_valid_error += evaluation_error.item()
+                    meta_valid_accuracy += evaluation_accuracy.item()
 
-            # Print some metrics
-            meta_train_accuracy = meta_train_accuracy / self.params['meta_batch_size']
-            meta_valid_accuracy = meta_valid_accuracy / self.params['meta_batch_size']
+                # Print some metrics
+                meta_train_accuracy = meta_train_accuracy / self.params['meta_batch_size']
+                meta_valid_accuracy = meta_valid_accuracy / self.params['meta_batch_size']
 
-            metrics = {'train_acc': meta_train_accuracy, 'valid_acc': meta_valid_accuracy}
-            t.set_postfix(metrics)
-            self.log_metrics(metrics)
+                metrics = {'train_acc': meta_train_accuracy,
+                           'valid_acc': meta_valid_accuracy}
+                t.set_postfix(metrics)
+                self.log_metrics(metrics)
 
-            # Average the accumulated gradients and optimize
-            for p in maml.parameters():
-                p.grad.data.mul_(1.0 / self.params['meta_batch_size'])
-            opt.step()
+                # Average the accumulated gradients and optimize
+                for p in maml.parameters():
+                    p.grad.data.mul_(1.0 / self.params['meta_batch_size'])
+                opt.step()
+
+        # Support safely manually interrupt training
+        except KeyboardInterrupt:
+            print('\nManually stopped training! Start evaluation & saving...\n')
+            self.logger['manually_stopped'] = True
+            self.params['num_iterations'] = iteration
 
         meta_test_error = 0.0
         meta_test_accuracy = 0.0
