@@ -11,10 +11,14 @@ import os
 class Experiment:
 
     def __init__(self, algo, dataset, params):
-        seed = 42
 
-        self.params = dict(seed=seed)  # Make sure all experiments have a seed
-        self.params.update(params)  # Merge experiment-specific configuration to shared config
+        self.params = params
+        # Make sure all experiments have a seed
+        if 'seed' in params.keys():
+            seed = params['seed']
+        else:
+            seed = 42
+            self.params.update(dict(seed=seed))
 
         self.logger = dict(
             config=self.params,
