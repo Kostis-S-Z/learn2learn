@@ -29,7 +29,7 @@ wandb = False
 class MamlVision(Experiment):
 
     def __init__(self):
-        super(MamlVision, self).__init__("maml", dataset, wandb, **params)
+        super(MamlVision, self).__init__("maml", dataset, params)
 
         random.seed(self.params['seed'])
         np.random.seed(self.params['seed'])
@@ -47,13 +47,13 @@ class MamlVision(Experiment):
             train_tasks, valid_tasks, test_tasks = get_omniglot(self.params['ways'], self.params['shots'])
             if omni_cnn:
                 model = l2l.vision.models.OmniglotCNN(self.params['ways'])
+                self.params['model_type'] = 'omni_CNN'
             else:
                 model = l2l.vision.models.OmniglotFC(28 ** 2, self.params['ways'])
-            input_shape = (1, 28, 28)
+                self.params['model_type'] = 'omni_FC'
         elif dataset == "min":
             train_tasks, valid_tasks, test_tasks = get_mini_imagenet(self.params['ways'], self.params['shots'])
             model = l2l.vision.models.MiniImagenetCNN(self.params['ways'])
-            input_shape = (3, 84, 84)
         else:
             print("Dataset not supported")
             exit(2)
@@ -62,8 +62,6 @@ class MamlVision(Experiment):
         maml = l2l.algorithms.MAML(model, lr=self.params['fast_lr'], first_order=False)
         opt = optim.Adam(maml.parameters(), self.params['meta_lr'])
         loss = nn.CrossEntropyLoss(reduction='mean')
-
-        self.log_model(maml, device, input_shape=input_shape)  # Input shape is specific to dataset
 
         t = trange(self.params['num_iterations'])
         try:
