@@ -124,6 +124,9 @@ class MAML(BaseLearner):
     def forward(self, *args, **kwargs):
         return self.module(*args, **kwargs)
 
+    def get_rep(self, input_d):
+        return self.get_base_representation(input_d)
+
     def adapt(self,
               loss,
               first_order=None,

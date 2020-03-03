@@ -214,6 +214,9 @@ class OmniglotCNN(nn.Module):
         x = self.linear(x)
         return x
 
+    def get_base_representation(self, x):
+        return self.base(x)
+
 
 class MiniImagenetCNN(nn.Module):
     """
@@ -258,3 +261,6 @@ class MiniImagenetCNN(nn.Module):
         x = self.base(x)
         x = self.linear(x.view(-1, 25 * self.hidden_size))
         return x
+
+    def get_base_representation(self, x):
+        return self.base(x)
