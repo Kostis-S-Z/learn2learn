@@ -127,6 +127,9 @@ class MAML(BaseLearner):
     def get_rep(self, input_d):
         return self.get_base_representation(input_d)
 
+    def get_rep_i(self, input_d, layer_i):
+        return self.get_rep_layer(input_d, layer_i)
+
     def adapt(self,
               loss,
               first_order=None,

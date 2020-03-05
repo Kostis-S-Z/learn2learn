@@ -264,3 +264,6 @@ class MiniImagenetCNN(nn.Module):
 
     def get_base_representation(self, x):
         return self.base(x)
+
+    def get_rep_layer(self, x, layer):
+        return nn.Sequential(*list(self.base.children())[:layer])(x)
