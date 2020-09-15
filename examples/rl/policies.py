@@ -17,10 +17,59 @@ def linear_init(module):
     return module
 
 
+class CaviaDiagNormalPolicy(nn.Module):
+
+    def __init__(self, input_size, output_size, hiddens=None, activation='relu', num_context_params=2, device='cpu'):
+        super(CaviaDiagNormalPolicy, self).__init__()
+        self.device = device
+        if hiddens is None:
+            hiddens = [100, 100]
+        if activation == 'relu':
+            activation = nn.ReLU
+        elif activation == 'tanh':
+            activation = nn.Tanh
+        layers = [linear_init(nn.Linear(input_size+num_context_params, hiddens[0])), activation()]
+        for i, o in zip(hiddens[:-1], hiddens[1:]):
+            layers.append(linear_init(nn.Linear(i, o)))
+            layers.append(activation())
+        layers.append(linear_init(nn.Linear(hiddens[-1], output_size)))
+
+        self.num_context_params = num_context_params
+        self.context_params = torch.zeros(self.num_context_params, requires_grad=True).to(self.device)
+
+        self.mean = nn.Sequential(*layers).to(self.device)
+        self.sigma = nn.Parameter(torch.Tensor(output_size)).to(self.device)
+        self.sigma.data.fill_(math.log(1))
+
+    def density(self, state):
+        state = state.to(self.device, non_blocking=True)
+        # concatenate context parameters to input
+        state = torch.cat((state, self.context_params.expand(state.shape[:-1] + self.context_params.shape)),
+                          dim=len(state.shape) - 1)
+
+        loc = self.mean(state)
+        scale = torch.exp(torch.clamp(self.sigma, min=math.log(EPSILON)))
+        return Normal(loc=loc, scale=scale)
+
+    def log_prob(self, state, action):
+        density = self.density(state)
+        return density.log_prob(action).mean(dim=1, keepdim=True)
+
+    def forward(self, state):
+
+        density = self.density(state)
+        action = density.sample()
+        return action
+
+    def reset_context(self):
+        self.context_params[:] = 0  # torch.zeros(self.num_context_params, requires_grad=True).to(self.device)
+
+
 class DiagNormalPolicy(nn.Module):
 
-    def __init__(self, input_size, output_size, hiddens=None, activation='relu'):
+    def __init__(self, input_size, output_size, hiddens=None, activation='relu', device='cpu'):
         super(DiagNormalPolicy, self).__init__()
+        self.device = device
         if hiddens is None:
             hiddens = [100, 100]
         if activation == 'relu':
@@ -37,6 +86,7 @@ class DiagNormalPolicy(nn.Module):
         self.sigma.data.fill_(math.log(1))
 
     def density(self, state):
+        state = state.to(self.device, non_blocking=True)
         loc = self.mean(state)
         scale = torch.exp(torch.clamp(self.sigma, min=math.log(EPSILON)))
         return Normal(loc=loc, scale=scale)

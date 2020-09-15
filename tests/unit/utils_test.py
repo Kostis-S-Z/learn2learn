@@ -5,6 +5,8 @@ import copy
 import torch
 import learn2learn as l2l
 
+EPSILON = 1e-8
+
 
 def ref_clone_module(module):
     """
@@ -13,6 +15,11 @@ def ref_clone_module(module):
     each forward call.
     See this issue for more details:
     https://github.com/learnables/learn2learn/issues/139
+
+    Note: This implementation also does not work for Modules that re-use
+    parameters from another Module.
+    See this issue for more details:
+    https://github.com/learnables/learn2learn/issues/174
     """
     # First, create a copy of the module.
     clone = copy.deepcopy(module)
@@ -89,6 +96,26 @@ class UtilTests(unittest.TestCase):
 
         for a, b in zip(self.model.parameters(), cloned_model.parameters()):
             self.assertTrue(torch.equal(a, b))
+
+    def test_clone_module_nomodule(self):
+        # Tests that we can clone non-module objects
+        class TrickyModule(torch.nn.Module):
+
+            def __init__(self):
+                super(TrickyModule, self).__init__()
+                self.tricky_modules = torch.nn.ModuleList([
+                    torch.nn.Linear(2, 1),
+                    None,
+                    torch.nn.Linear(1, 1),
+                ])
+
+        model = TrickyModule()
+        clone = l2l.clone_module(model)
+        for i, submodule in enumerate(clone.tricky_modules):
+            if i % 2 == 0:
+                self.assertTrue(submodule is not None)
+            else:
+                self.assertTrue(submodule is None)
 
     def test_clone_module_models(self):
         ref_models = [l2l.vision.models.OmniglotCNN(10),
@@ -171,10 +198,90 @@ class UtilTests(unittest.TestCase):
             # Ensure we did better
             self.assertTrue(first_loss > second_loss)
 
+    def test_module_clone_shared_params(self):
+        # Tests proper use of memo parameter
+
+        class TestModule(torch.nn.Module):
+            def __init__(self):
+                super(TestModule, self).__init__()
+                cnn = [
+                    torch.nn.Conv2d(3, 32, 3, 2, 1),
+                    torch.nn.ReLU(),
+                    torch.nn.Conv2d(32, 32, 3, 2, 1),
+                    torch.nn.ReLU(),
+                    torch.nn.Conv2d(32, 32, 3, 2, 1),
+                    torch.nn.ReLU(),
+                ]
+                self.seq = torch.nn.Sequential(*cnn)
+                self.head = torch.nn.Sequential(*[
+                    torch.nn.Conv2d(32, 32, 3, 2, 1),
+                    torch.nn.ReLU(),
+                    torch.nn.Conv2d(32, 100, 3, 2, 1)]
+                )
+                self.net = torch.nn.Sequential(self.seq, self.head)
+
+            def forward(self, x):
+                return self.net(x)
+
+        original = TestModule()
+        clone = l2l.clone_module(original)
+        self.assertTrue(
+            len(list(clone.parameters())) == len(list(original.parameters())),
+            'clone and original do not have same number of parameters.',
+        )
+
+        orig_params = [p.data_ptr() for p in original.parameters()]
+        duplicates = [p.data_ptr() in orig_params for p in clone.parameters()]
+        self.assertTrue(not any(duplicates), 'clone() forgot some parameters.')
+
+    def test_module_update_shared_params(self):
+        # Tests proper use of memo parameter
+
+        class TestModule(torch.nn.Module):
+            def __init__(self):
+                super(TestModule, self).__init__()
+                cnn = [
+                    torch.nn.Conv2d(3, 32, 3, 2, 1),
+                    torch.nn.ReLU(),
+                    torch.nn.Conv2d(32, 32, 3, 2, 1),
+                    torch.nn.ReLU(),
+                    torch.nn.Conv2d(32, 32, 3, 2, 1),
+                    torch.nn.ReLU(),
+                ]
+                self.seq = torch.nn.Sequential(*cnn)
+                self.head = torch.nn.Sequential(*[
+                    torch.nn.Conv2d(32, 32, 3, 2, 1),
+                    torch.nn.ReLU(),
+                    torch.nn.Conv2d(32, 100, 3, 2, 1)]
+                )
+                self.net = torch.nn.Sequential(self.seq, self.head)
+
+            def forward(self, x):
+                return self.net(x)
+
+        original = TestModule()
+        num_original = len(list(original.parameters()))
+        clone = l2l.clone_module(original)
+        updates = [torch.randn_like(p) for p in clone.parameters()]
+        l2l.update_module(clone, updates)
+        num_clone = len(list(clone.parameters()))
+        self.assertTrue(
+            num_original == num_clone,
+            'clone and original do not have same number of parameters.',
+        )
+        for p, c, u in zip(original.parameters(), clone.parameters(), updates):
+            self.assertTrue(torch.norm(p + u - c, p=2) <= EPSILON, 'clone is not original + update.')
+
+        orig_params = [p.data_ptr() for p in original.parameters()]
+        duplicates = [p.data_ptr() in orig_params for p in clone.parameters()]
+        self.assertTrue(not any(duplicates), 'clone() forgot some parameters.')
 
     def test_module_detach(self):
         original_output = self.model(self.input)
-        original_loss = self.loss_func(original_output, torch.tensor([[0., 0.]]))
+        original_loss = self.loss_func(
+            original_output,
+            torch.tensor([[0., 0.]])
+        )
 
         original_gradients = torch.autograd.grad(original_loss,
                                                  self.model.parameters(),
