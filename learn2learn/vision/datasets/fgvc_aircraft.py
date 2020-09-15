@@ -14,7 +14,7 @@ DATA_DIR = os.path.join('fgvc-aircraft-2013b', 'data')
 IMAGES_DIR = os.path.join(DATA_DIR, 'images')
 LABELS_PATH = os.path.join(DATA_DIR, 'labels.pkl')
 
-# Splits from "Meta-Datasets", Triantafillou et al, 2019
+# Splits from "Meta-Datasets", Triantafillou et al, 2020
 SPLITS = {
     'train': ['A340-300', 'A318', 'Falcon 2000', 'F-16A/B', 'F/A-18', 'C-130',
               'MD-80', 'BAE 146-200', '777-200', '747-400', 'Cessna 172',
@@ -72,11 +72,13 @@ class FGVCAircraft(Dataset):
 
     The dataset consists of 10,200 images of aircraft (102 classes, each 100 images).
     We provided the raw (un-processed) images and follow the train-validation-test splits of Triantafillou et al.
+    TODO: Triantafillou et al. recommend cropping the images using the bounding box information,
+    to remove copyright information and ensure that only one plane is visible in the image.
 
     **References**
 
     1. Maji et al. 2013. "Fine-Grained Visual Classification of Aircraft." arXiv [cs.CV].
-    2. Triantafillou et al. 2019. "Meta-Dataset: A Dataset of Datasets for Learning to Learn from Few Examples." ICLR '20.
+    2. Triantafillou et al. 2020. "Meta-Dataset: A Dataset of Datasets for Learning to Learn from Few Examples." ICLR '20.
     3. [http://www.robots.ox.ac.uk/~vgg/data/fgvc-aircraft/](http://www.robots.ox.ac.uk/~vgg/data/fgvc-aircraft/)
 
     **Arguments**
