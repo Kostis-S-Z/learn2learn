@@ -268,7 +268,7 @@ class MiniImagenetCNN(torch.nn.Module):
 
     def __init__(self, output_size, hidden_size=32, layers=4):
         super(MiniImagenetCNN, self).__init__()
-        base = ConvBase(
+        self.base = ConvBase(
             output_size=hidden_size,
             hidden=hidden_size,
             channels=3,
