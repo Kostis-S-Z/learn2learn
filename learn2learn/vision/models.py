@@ -225,19 +225,14 @@ class OmniglotCNN(torch.nn.Module):
                              channels=1,
                              max_pool=False,
                              layers=layers)
-        self.features = torch.nn.Sequential(
-            l2l.nn.Lambda(lambda x: x.view(-1, 1, 28, 28)),
-            self.base,
-            l2l.nn.Lambda(lambda x: x.mean(dim=[2, 3])),
-            l2l.nn.Flatten(),
-        )
-        self.classifier = torch.nn.Linear(hidden_size, output_size, bias=True)
-        self.classifier.weight.data.normal_()
-        self.classifier.bias.data.mul_(0.0)
+        self.linear = torch.nn.Linear(hidden_size, output_size, bias=True)
+        self.linear.weight.data.normal_()
+        self.linear.bias.data.mul_(0.0)
 
     def forward(self, x):
-        x = self.features(x)
-        x = self.classifier(x)
+        x = self.base(x.view(-1, 1, 28, 28))
+        x = x.mean(dim=[2, 3])
+        x = self.linear(x)
         return x
 
     def get_base_representation(self, x):
@@ -281,25 +276,17 @@ class MiniImagenetCNN(torch.nn.Module):
             layers=layers,
             max_pool_factor=4 // layers,
         )
-        self.features = torch.nn.Sequential(
-            base,
-            l2l.nn.Flatten(),
-        )
-        self.classifier = torch.nn.Linear(
-            25 * hidden_size,
-            output_size,
-            bias=True,
-        )
-        maml_init_(self.classifier)
+        self.linear = torch.nn.Linear(25 * hidden_size, output_size, bias=True)
+        maml_init_(self.linear)
         self.hidden_size = hidden_size
 
     def forward(self, x):
-        x = self.features(x)
-        x = self.classifier(x)
+        x = self.base(x)
+        x = self.linear(x.view(-1, 25 * self.hidden_size))
         return x
 
     def get_base_representation(self, x):
         return self.base(x)
 
     def get_rep_layer(self, x, layer):
-        return nn.Sequential(*list(self.base.children())[:layer])(x)
+        return torch.nn.Sequential(*list(self.base.children())[:layer])(x)
